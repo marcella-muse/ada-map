@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Access Map">
+<meta name="theme-color" content="#111111">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<title>Accessible Subway Stations — Live Elevator Map</title>
+<style>
+:root{
+  --bg:#f4f3ef; --panel:#ffffff; --ink:#15171a; --mute:#5c6470; --line:#dcdad3;
+  --ok:#0b6bcb; --out:#c2410c; --outbg:#fff1e8; --non:#8d8a82; --water:#d9e4ea; --land:#f6f4ee; --shore:#c4cdd2; --lb:#0039a6; --ly:#8f9194; --mk:#15171a; --me:#1a73e8; --chip:#ecebe6;
+}
+@media (prefers-color-scheme:dark){
+  :root{ --bg:#101214; --panel:#191c20; --ink:#f1f1ee; --mute:#a2a9b3; --line:#2c3138;
+    --ok:#5aa9ff; --out:#ff9a57; --outbg:#3a2314; --non:#9aa0a8; --water:#0e1215; --land:#1d2126; --shore:#2f363d; --lb:#3f74ea; --ly:#a7a9ac; --mk:#000; --me:#4c9bff; --chip:#252a30; }
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font:15px/1.4 "Helvetica Neue",Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);display:flex;flex-direction:column}
+header{background:#111;color:#fff;padding:max(12px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) 12px max(18px,env(safe-area-inset-left));display:flex;flex-wrap:wrap;gap:6px 18px;align-items:baseline;border-bottom:4px solid #fccc0a}
+header h1{font-size:18px;margin:0;font-weight:700;letter-spacing:-.01em}
+#status{font-size:13px;color:#d6d6d6;margin-left:auto;display:flex;align-items:center;gap:7px}
+#dot{width:9px;height:9px;border-radius:50%;background:#888;flex:none}
+#dot.live{background:#3ddc84}#dot.snap{background:#fccc0a}#dot.stale{background:#ff6b4a}
+main{flex:1;min-height:0;display:grid;grid-template-columns:1fr 360px}
+#mapwrap{position:relative;min-height:0;background:var(--water);overflow:hidden}
+svg#map{width:100%;height:100%;display:block;touch-action:none;cursor:grab;user-select:none}
+svg#map.drag{cursor:grabbing}
+.boro{fill:var(--mute);opacity:.22;font-weight:700;font-size:80px;letter-spacing:8px;text-anchor:middle;pointer-events:none}
+.non{fill:var(--non);stroke:var(--land);stroke-width:1;vector-effect:non-scaling-stroke}
+.land{fill:var(--land);stroke:var(--shore);stroke-width:1;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.ln{fill:none;stroke-width:3.2;vector-effect:non-scaling-stroke;stroke-linejoin:round;stroke-linecap:round}
+svg.far .ln{stroke-width:2.8}
+.st{cursor:pointer}
+.st .shape{fill:#fff;stroke:var(--mk);stroke-width:2.2}
+.pdot{fill:var(--mk);display:none}
+.st.part .pdot{display:block}
+.st.out .pdot{display:none}
+.st.out .shape{fill:var(--out);stroke:#fff;stroke-width:1.5}
+.st.sel .halo{display:block}
+.halo{display:none;fill:none;stroke:var(--me);stroke-width:3}
+#me .acc{fill:var(--me);opacity:.16}
+#me .dot{fill:var(--me);stroke:#fff;stroke-width:3}
+#msg{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:7px 13px;border-radius:99px;font-size:13px;max-width:75%;text-align:center}
+#loc[aria-pressed=true]{background:var(--me);color:#fff;border-color:var(--me)}
+.st .lab{font-size:11px;fill:var(--ink);paint-order:stroke;stroke:var(--land);stroke-width:3px;display:none;pointer-events:none}
+svg.labels .st .lab,.st.sel .lab{display:block}
+.st.hide{display:none}
+.bang{fill:#fff;font-size:10px;font-weight:700;text-anchor:middle;pointer-events:none;display:none}
+.st.out .bang{display:block}
+#zoom{position:absolute;right:12px;top:12px;display:flex;flex-direction:column;gap:6px}
+#zoom button{width:44px;height:44px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-size:20px;cursor:pointer}
+#legend{position:absolute;left:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:12.5px;display:grid;gap:5px}
+#legend div{display:flex;align-items:center;gap:8px}
+#legend div[hidden]{display:none}
+#legend svg{width:16px;height:16px;flex:none}
+aside{background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+#summary{display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--line)}
+#summary div{padding:12px 10px 10px;text-align:center}
+#summary b{display:block;font-size:24px;line-height:1.1}
+#summary span{font-size:11.5px;color:var(--mute)}
+#summary .o b{color:var(--out)}
+#controls{padding:10px 12px;display:grid;gap:8px;border-bottom:1px solid var(--line)}
+#q,#boro{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);width:100%}
+.row{display:flex;gap:6px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips button{font:inherit;font-size:13px;padding:5px 11px;border-radius:99px;border:1px solid var(--line);background:var(--chip);color:var(--ink);cursor:pointer}
+.chips button[aria-pressed=true]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+#detail{border-bottom:1px solid var(--line);padding:14px;display:none;max-height:55%;overflow:auto}
+#detail.on{display:block}
+#detail h2{font-size:17px;margin:0 30px 6px 0}
+#close{position:absolute;right:10px;top:10px;border:0;background:none;color:var(--mute);font-size:22px;cursor:pointer;line-height:1}
+#detail{position:relative}
+.badge{display:inline-block;font-size:12.5px;font-weight:700;padding:3px 9px;border-radius:6px;margin:8px 0 4px}
+.badge.ok{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+.badge.out{background:var(--outbg);color:var(--out)}
+.note{font-size:13px;color:var(--mute);margin:4px 0}
+.outage{background:var(--outbg);border-radius:8px;padding:9px 11px;margin-top:8px;font-size:13.5px}
+.outage b{display:block}
+.outage small{color:var(--mute);display:block;margin-top:2px}
+#detail a{color:var(--ok);font-size:13px}
+#list{list-style:none;margin:0;padding:0;overflow:auto;flex:1}
+#list button{all:unset;box-sizing:border-box;display:block;width:100%;padding:9px 14px;border-bottom:1px solid var(--line);cursor:pointer}
+#list button:hover,#list button:focus-visible{background:var(--bg)}
+#list button:focus-visible{outline:2px solid var(--ok);outline-offset:-2px}
+.nm{font-weight:600}
+.sub{font-size:12.5px;color:var(--mute)}
+.sub.o{color:var(--out);font-weight:600}
+.rt{display:inline-flex;align-items:center;justify-content:center;min-width:19px;height:19px;padding:0 3px;border-radius:10px;font-size:11.5px;font-weight:700;color:#fff;margin:2px 3px 0 0;vertical-align:middle}
+#empty{padding:20px;color:var(--mute);text-align:center}
+footer{font-size:11.5px;color:var(--mute);padding:8px 14px max(8px,env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+footer a{color:inherit}
+@media (max-width:820px){
+  main{grid-template-columns:1fr;grid-template-rows:58vh auto}
+  body{height:auto;min-height:100%}
+  aside{border-left:0;border-top:1px solid var(--line)}
+  #list{max-height:none;overflow:visible}
+  #detail{max-height:none}
+  #status{margin-left:0;width:100%}
+  #mapwrap{display:flex;flex-direction:column}
+  svg#map{flex:1;min-height:0;height:auto}
+  #legend{position:static;border:0;border-top:1px solid var(--line);border-radius:0;grid-template-columns:1fr 1fr;font-size:11.5px;gap:4px 10px;padding:7px 10px}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Accessible Subway Stations</h1>
+  <div id="status" role="status"><span id="dot"></span><span id="stxt">Loading elevator status…</span></div>
+</header>
+<main>
+  <div id="mapwrap">
+    <svg id="map" aria-label="Map of New York City subway stations. Use the station list to browse accessible stations." role="img"></svg>
+    <div id="zoom">
+      <button id="zin" aria-label="Zoom in">+</button>
+      <button id="zout" aria-label="Zoom out">−</button>
+      <button id="zfit" aria-label="Reset map view" style="font-size:15px">⤢</button>
+      <button id="loc" aria-label="Show my location" aria-pressed="false" hidden style="font-size:17px">➤</button>
+    </div>
+    <div id="msg" role="status" hidden></div>
+    <div id="legend">
+      <div id="lgme" hidden><svg viewBox="-8 -8 16 16"><circle r="5.5" fill="var(--me)" stroke="#fff" stroke-width="2"/></svg>You are here</div>
+      <div><svg viewBox="-8 -8 16 16"><circle r="5.5" fill="#fff" stroke="var(--mk)" stroke-width="2.2"/></svg>Accessible, elevators working</div>
+      <div><svg viewBox="-8 -8 16 16"><circle r="5.5" fill="#fff" stroke="var(--mk)" stroke-width="2.2"/><circle r="2.6" fill="var(--mk)"/></svg>Accessible in one direction / partly</div>
+      <div><svg viewBox="-8 -8 16 16"><rect x="-5.5" y="-5.5" width="11" height="11" transform="rotate(45)" fill="var(--out)"/></svg>Elevator out of service</div>
+      <div><svg viewBox="-8 -8 16 16"><circle r="3" fill="var(--non)"/></svg>Not accessible</div>
+    </div>
+  </div>
+  <aside>
+    <div id="summary">
+      <div><b id="nAll">–</b><span>accessible stations</span></div>
+      <div><b id="nOk">–</b><span>all elevators working</span></div>
+      <div class="o"><b id="nOut">–</b><span>with an elevator out</span></div>
+    </div>
+    <div id="detail" aria-live="polite"></div>
+    <div id="controls">
+      <div class="row">
+        <input id="q" type="search" placeholder="Search station or line" aria-label="Search station or line">
+        <select id="boro" aria-label="Borough" style="width:130px">
+          <option value="">All boroughs</option><option value="M">Manhattan</option><option value="Bk">Brooklyn</option>
+          <option value="Q">Queens</option><option value="Bx">Bronx</option><option value="SI">Staten Island</option>
+        </select>
+      </div>
+      <div class="chips" role="group" aria-label="Filter">
+        <button data-f="all" aria-pressed="true">All</button>
+        <button data-f="out" aria-pressed="false">Elevator out</button>
+        <button data-f="ok" aria-pressed="false">All working</button>
+        <button data-f="part" aria-pressed="false">Partly accessible</button>
+      </div>
+    </div>
+    <ul id="list"></ul>
+    <footer>Stations: MTA Subway Stations open data (ADA status). Elevators: MTA elevator &amp; escalator outage feed. An outage doesn't always close off a station — check what the elevator serves. Official pages: <a href="https://www.mta.info/accessibility/stations">accessible stations</a> · <a href="https://www.mta.info/elevator-escalator-status">elevator status</a>.</footer>
+  </aside>
+</main>
+<script>
+// complexId|name|routes|1 full, 2 partial|notes|borough|x|y|routes at this complex that are NOT accessible
+const ACC=`2|Astoria Blvd|N W|1||Q|3422|2703|
+9|57 St-7 Av|N Q R W|1||M|2793|2647|
+10|49 St|N R W|2|Uptown only|M|2759|2599|
+26|DeKalb Av|B Q R|1||Bk|2782|1906|
+35|59 St|N R|1||Bk|2421|1414|
+38|86 St|R|1||Bk|2316|1227|
+39|Bay Ridge-95 St|R|1||Bk|2291|1166|
+42|Prospect Park|B Q S|1||Bk|2978|1616|
+44|Church Av|B Q|1||Bk|2970|1505|
+48|Avenue H|Q|1||Bk|2984|1293|
+51|Kings Hwy|B Q|1||Bk|3023|1087|
+54|Sheepshead Bay|B Q|1||Bk|3058|869|
+58|Coney Island-Stillwell Av|D F N Q|1||Bk|2788|774|
+68|Bay Pkwy|D|1||Bk|2663|1019|
+71|8 Av|N|1||Bk|2483|1351|
+83|Woodhaven Blvd|J Z|1||Q|4084|1939|
+98|Flushing Av|M J|1||Bk|3189|2003|
+101|Marcy Av|M J Z|1||Bk|3022|2084|
+108|Middle Village-Metropolitan Av|M|1||Q|3704|2114|
+119|1 Av|L|1||M|2784|2310|
+120|Bedford Av|L|1||Bk|3031|2173|
+123|Grand St|L|1||Bk|3193|2119|
+130|Wilson Av|L|2|Manhattan-bound only|Bk|3560|1888|
+135|Livonia Av|L|1||Bk|3594|1640|
+138|Canarsie-Rockaway Pkwy|L|1||Bk|3582|1467|
+141|Park Pl|S|1||Bk|3024|1748|
+143|Inwood-207 St|A|1||M|3401|3681|
+146|181 St|A|1||M|3220|3517|
+147|175 St|A|1||M|3203|3474|
+153|125 St|A C B D|1||M|3077|3111|
+162|50 St|C E|2|Downtown only|M|2740|2625|
+164|34 St-Penn Station|A C E|1||M|2666|2523|
+167|W 4 St-Wash Sq|A C E B D F M|1||M|2595|2323|
+168|Spring St|C E|2|Downtown only|M|2563|2262|
+181|Utica Av|A C|1||Bk|3293|1794|
+188|Euclid Av|A C|1||Bk|3879|1754|
+192|Rockaway Blvd|A|1||Q|4161|1804|
+195|Ozone Park-Lefferts Blvd|A|1||Q|4342|1860|
+196|Aqueduct Racetrack|A|1||Q|4241|1721|
+198|Howard Beach-JFK Airport|A|1||Q|4297|1605|
+203|Rockaway Park-Beach 116 St|A S|1||Q|4244|809|
+204|Beach 67 St|A|1||Q|4631|909|
+209|Far Rockaway-Mott Av|A|1||Q|5046|1040|
+211|Bedford Park Blvd|B D|1||Bx|3729|3732|
+212|Kingsbridge Rd|B D|1||Bx|3665|3670|
+215|Tremont Av|B D|1||Bx|3548|3504|
+221|21 St-Queensbridge|M|1||Q|3172|2542|
+222|Roosevelt Island|M|1||M|3067|2591|
+223|Lexington Av/63 St|M Q|1||M|2939|2646|
+224|57 St|M|1||M|2826|2640|
+225|47-50 Sts-Rockefeller Ctr|B D F M|1||M|2787|2587|
+240|7 Av|F G|1||Bk|2797|1663|
+243|Church Av|F G|1||Bk|2803|1440|
+250|Kings Hwy|F|1||Bk|2876|1032|
+254|Jamaica-179 St|F|1||Q|4762|2126|
+259|Kew Gardens-Union Tpke|E F|1||Q|4290|2144|
+261|Forest Hills-71 Av|E F M R|1||Q|4155|2217|
+269|Northern Blvd|M R|1||Q|3540|2529|
+273|Queens Plaza|E F R|1||Q|3228|2490|
+278|Jamaica Center-Parsons/Archer|E J Z|1||Q|4589|2021|
+279|Sutphin Blvd-Archer Av-JFK Airport|E J Z|1||Q|4520|2005|
+280|Jamaica-Van Wyck|E|1||Q|4431|2026|
+283|Greenpoint Av|G|1||Bk|3056|2314|
+295|231 St|1|1||Bx|3552|3789|
+299|Dyckman St|1|1||M|3345|3605|
+305|137 St-City College|1|1||M|3063|3220|
+310|96 St|1 2 3|1||M|2877|2939|
+313|72 St|1 2 3|1||M|2780|2785|
+314|66 St-Lincoln Center|1|1||M|2778|2734|
+318|34 St-Penn Station|1 2 3|1||M|2689|2504|
+327|Chambers St|1 2 3|1||M|2507|2155|
+328|WTC Cortlandt|1|1||M|2478|2118|
+336|Hoyt St|2 3|2|Outbound only|Bk|2749|1905|
+341|Eastern Pkwy-Brooklyn Museum|2 3|1||Bk|2956|1720|
+345|Crown Hts-Utica Av|3 4|1||Bk|3271|1689|
+356|Church Av|2 5|1||Bk|3104|1508|
+359|Flatbush Av-Brooklyn College|2 5|1||Bk|3124|1328|
+360|Pelham Bay Park|6|1||Bx|4319|3525|
+363|Westchester Sq-E Tremont Av|6|1||Bx|4170|3399|
+366|Parkchester|6|1||Bx|3992|3332|
+371|Hunts Point Av|6|1||Bx|3695|3209|
+373|E 149 St|6|1||Bx|3559|3121|
+379|Mosholu Pkwy|4|1||Bx|3753|3798|
+382|Fordham Rd|4|1||Bx|3590|3628|
+387|170 St|4|1||Bx|3422|3401|
+392|125 St|4 5 6|1||M|3224|3041|
+397|86 St|4 5 6|2|Uptown local only|M|3044|2795|
+399|68 St-Hunter College|6|1||M|2961|2681|
+404|28 St|6|2|Downtown only|M|2757|2431|
+405|23 St-Baruch College|6|1||M|2734|2399|
+414|Bowling Green|4 5|1||M|2459|2048|
+418|233 St|2 5|1||Bx|4025|3932|
+421|Gun Hill Rd|2 5|1||Bx|3937|3779|
+424|Pelham Pkwy|2 5|1||Bx|3924|3572|
+426|E 180 St|2 5|1||Bx|3865|3419|
+430|Simpson St|2 5|1||Bx|3669|3241|
+434|3 Av-149 St|2 5|1||Bx|3422|3161|
+436|Harlem-148 St|3|1||M|3235|3239|
+438|135 St|2 3|1||M|3192|3142|
+444|Gun Hill Rd|5|1||Bx|4136|3695|
+447|Flushing-Main St|7|1||Q|4300|2596|
+451|Junction Blvd|7|1||Q|3905|2491|
+456|61 St-Woodside|7|1||Q|3570|2456|
+461|Queensboro Plaza|N W 7|1||Q|3198|2506|
+471|34 St-Hudson Yards|7|1||M|2581|2559|
+475|96 St|Q|1||M|3128|2843|
+476|86 St|Q|1||M|3082|2779|
+477|72 St|Q|1||M|3016|2688|
+501|St George|SIR|1||SI|1864|1437|
+507|Dongan Hills|SIR|1||SI|1639|888|
+510|New Dorp|SIR|1||SI|1428|735|
+513|Great Kills|SIR|1||SI|1086|512|
+522|Tottenville|SIR|1||SI|80|128|
+523|Arthur Kill|SIR|1||SI|179|166|
+601|6 Av / 14 St|L F M 1 2 3|1||M|2623|2378|
+602|14 St-Union Sq|N Q R W L|1||M|2694|2353|4 5 6
+603|149 St-Hostos|4 2 5|1||Bx|3330|3184|
+604|161 St-Yankee Stadium|B D 4|1||Bx|3343|3280|
+605|168 St|A C|1||M|3204|3407|1
+606|Court Sq-23 St / Court Sq|E F G 7|2|E F: Manhattan-bound only|Q|3150|2471|
+607|34 St-Herald Sq|N Q R W B D F M|1||M|2722|2497|
+610|Grand Central-42 St|4 5 6 7 S|1||M|2827|2520|
+611|Times Sq-42 St / 42 St-Port Authority Bus Terminal|N Q R W A C E 1 2 3 7 S|1||M|2724|2558|
+612|Lexington Av/53 St / 51 St|E F 6|1||M|2895|2574|
+614|59 St-Columbus Circle|A C B D 1|1||M|2782|2683|
+615|62 St / New Utrecht Av|D N|1||Bk|2634|1257|
+616|Jackson Hts-Roosevelt Av / 74 St-Broadway|E F M R 7|1||Q|3687|2467|
+617|Atlantic Av-Barclays Ctr|D N R B Q 2 3 4 5|1||Bk|2822|1842|
+618|8 Av / 14 St|L A C E|1||M|2579|2404|
+619|Broadway-Lafayette St / Bleecker St|B D F M 6|1||M|2646|2256|
+620|Borough Hall|2 3 4 5|1||Bk|2699|1928|R
+622|Chambers St / Brooklyn Bridge-City Hall|J Z 4 5 6|1||M|2563|2132|
+623|Canal St|6|1||M|2598|2188|R W N Q J Z
+624|Cortlandt St / World Trade Center|R W E|1||M|2496|2117|A C 2 3
+627|Franklin Av|S C|1||Bk|3037|1810|
+628|Fulton St|J Z A C 2 3 4 5|1||M|2522|2101|
+629|Lorimer St / Metropolitan Av|L G|1||Bk|3092|2135|
+630|Myrtle-Wyckoff Avs|M L|1||Bk|3480|1996|
+635|South Ferry|1|1||M|2463|2021|R W
+636|Jay St-MetroTech|R A C F|1||Bk|2734|1923|`;
+const NON=`3480,2750 3385,2668 3345,2618 3304,2568 3272,2529 2867,2648 2713,2455 2707,2413 2674,2303 2623,2243 2530,2133 2467,2072 2769,1773 2671,1654 2619,1604 2565,1551 2500,1489 2460,1451 2366,1350 2345,1297 2876,1771 2985,1553 2955,1440 2961,1409 2972,1351 2992,1250 3006,1176 3041,993 3048,952 2986,776 2915,763 2841,761 2657,1463 2657,1409 2652,1363 2645,1314 2611,1196 2594,1135 2583,1080 2618,1046 2732,977 2762,888 2546,1314 2696,1207 2750,1174 2782,1118 2796,1039 2809,975 2818,927 4317,2005 4237,1974 4157,1952 4000,1924 3929,1913 3875,1899 3862,1832 3800,1814 3754,1799 3683,1780 3613,1770 3495,1829 3434,1864 3377,1896 3312,1933 3243,1972 3126,2039 3066,2069 2661,2203 2489,2065 3641,2062 3569,2044 3523,2028 3403,1987 3326,1979 2739,2328 3159,2146 3201,2077 3269,2062 3371,2066 3416,2038 3559,1956 3548,1828 3569,1753 3580,1694 3608,1587 3605,1506 3327,3655 3258,3590 3201,3360 3185,3305 3158,3248 3158,3248 3124,3179 3051,3051 3018,3006 2985,2961 2953,2916 2911,2859 2879,2814 2836,2756 2620,2459 2548,2208 2695,1993 2750,1885 2861,1861 2942,1833 3096,1804 3191,1799 3392,1788 3481,1783 3635,1745 3696,1727 3792,1741 3950,1770 4010,1794 4085,1798 4223,1817 4278,1843 4259,1682 4441,1084 4464,880 4394,853 4324,832 4715,924 4840,929 4918,954 4986,1001 3811,3748 3623,3613 3593,3561 3499,3459 3466,3393 3416,3338 3218,3301 2672,2429 2662,2183 2701,2234 2698,2137 2732,2014 2691,1861 2650,1803 2640,1736 2805,1604 2842,1508 2818,1361 2830,1298 2839,1253 2847,1208 2858,1151 2870,1089 2866,961 2858,896 2854,810 4664,2105 4567,2076 4493,2055 4394,2092 4227,2183 4073,2265 3984,2298 3908,2331 3828,2370 3780,2425 3615,2497 3467,2563 3393,2569 3312,2520 2848,2602 2784,2629 3103,2441 3087,2246 3097,2061 3098,2004 3110,1946 3065,1896 2999,1889 2932,1881 2846,1871 3614,3892 3591,3847 3502,3746 3447,3694 3412,3646 3306,3552 3264,3495 3151,3340 3096,3266 3016,3156 2959,3077 2932,3040 2916,2994 2838,2886 2801,2839 2762,2617 2666,2472 2643,2441 2621,2410 2571,2334 2546,2283 2537,2229 2531,2193 2462,2075 2509,2068 2669,1975 2795,1882 2849,1808 2890,1752 3095,1698 3178,1694 3374,1647 3437,1615 3511,1625 3576,1635 3651,1646 3706,1654 3759,1662 3093,1679 3092,1627 3098,1567 3110,1451 3116,1400 4274,3468 4237,3439 4130,3365 4088,3343 3924,3315 3855,3295 3808,3286 3737,3265 3636,3161 3523,3087 3460,3054 3408,3076 3339,3105 3812,3860 3699,3734 3628,3678 3561,3584 3523,3535 3482,3485 3453,3444 3386,3355 3302,3132 3184,2986 3158,2950 3125,2906 3089,2857 3001,2736 2779,2461 2689,2301 2629,2223 2481,2076 4094,4031 4056,3984 3997,3880 3974,3839 3928,3714 3926,3655 3915,3488 3800,3403 3723,3373 3681,3300 3633,3222 3582,3196 3522,3165 3238,3204 3145,3078 3104,3021 3082,2991 4292,3883 4214,3787 4046,3590 3995,3544 4144,2546 4047,2517 3973,2499 3834,2484 3763,2477 3636,2463 3475,2441 3416,2431 3360,2438 3290,2446 3111,2422 3064,2426 1852,1369 1848,1279 1886,1213 1759,1031 1726,966 1567,836 1503,790 1337,651 1231,564 954,446 818,405 682,337 599,255 422,224 309,196 2717,1708 2702,1703 2754,2542 2780,2538 2927,2627 2920,2625 3555,1795 3568,1789 3547,1783 2726,2183 2719,2186 3008,1703 3019,1707`;
+
+const GEO={"r": "M2740 2575l-151-208-40-71-19-112-48-57-34-83 3-14 20-14M3615 3895l-73-121-73-53-66-86-54-23-423-580-11-41-122-163-15-64 2-111-39-78M2503 2135l39-30-40-44 2-16 52-35 130-41 21-47 86-37 112-151 146-34 289-16 73-72 355 51M3232 3240l22-16-177-238-86-19-61 26-15-2M3074 1699l19-7-4-53 34-317M3234 3189l74 2 126-33 82 4 163 84 3 61 43 70 83 36 47-1 28 21 38 65 9 268 117 207 52 64", "b": "M3162 3255l-57-112-35-39-4-34-490-669-2-11 29-55-54-104-1-44-49-71 48-26 65-75 107-25 8-10-8-77 9-10 60-22 54-2 80-32 144-31 546-27 15-8 12-41 23-8 272 40 57 31 194 16M4410 2065l28-56 28-14 134 30M3175 2472l-120 24-89 56-198 83-21 0M3184 2474l86 44 80 3 73 17 108-6 242-104 34-25 32-50 221-82 235-131 85-34 25-34M74 123l32 18M75 124l38 21M96 136l-21-14M112 145l-39-23M120 147l79 28 101 20M304 196l78 17M254 197l46-2M387 214l-183-38-84-29M414 222l162 24 48 29M624 275l20 21M646 299l-37-38-28-13-180-29M670 324l36 36 43 25 155 38 107 52M671 325l-27-29M672 326l40 38 45 24 162 40 96 49M1013 476l42 22M1022 481l29 14M1064 502l155 53 126 102 57 59 149 108M1063 502l33 15M1104 520l62 11 62 31 114 93 57 59 148 108M1553 826l36 26M1585 850l-28-21M1589 852l110 80 36 53M1735 986l-39-56-111-80M1741 1002l106 158 40 35 1 15-27 38M1882 1223l-16 20M1863 1245l24-33-1-18-37-30-111-169M1857 1254l-10 38 10 38-7 47M1855 1347l-9-50 16-52M1850 1376l4-25M3206 3415l-6-72-37-87M4507 925l-4-19-21-18-105-41-147-41M5055 1045l-177-111-181-10-129-22-42 8-21 23M4194 1807l119-236 124-478 68-160M4355 1862l-44-5-126-48M3412 3685l-83-28-50-34-44-62-37-95 13-21-5-30", "y": "M2574 2398l299-126 210-131 96 5 33-91 147 19 226-133 7-17-43-47-7-39 27-52-2-46 53-209-44-73", "s": "M3042 1805l-66-182M2805 2529l-68 30M4439 1086l67-157-6-27-120-54-150-42", "n": "M2560 2125l-33-18-38-42M2562 2127l60 80 16 4 353-109 17-14 77-26 515-294 100 14 175 53-14 57 25 12 164 23 88 24 65 3 73 42 84 18 81-31 159 41", "g": "M2552 2124l20 36 119 142 9 51 104 141M4328 3529l-25-12-22-44-52-41-51-26-74-62-125-13-148-43-88-8-19-56-47-22-66-65-77-32-17-38-31-17-21 1-153 71-24-5-441-593-28-9-15-21M3271 1689l-225 12-142 34-115 155-83 33-132 26-118 75-1 19 54 67 43 14M3816 3865l-24-33-70-62-16-31-62-40-97-139-151-187-68-116 11-48-28-64-34-37M3904 3465l18 34 9 267 117 207 52 64M3124 1324l-34 312 4 55-29 9M4307 3908l-32-51-238-279-126-103M3904 3465l-10-23-34-29-51-1-83-36-42-68-4-63-163-84-79-5-116 31-5-9", "o": "M2994 777l61 75 5 43-105 547 32 114-5 44-10 39-136 189-10 46-37 19-12 25M2775 1921l-124 232 32 68-3 17-56 19-49 31 229 322-4 13-37 14-3 14 309 421 1 29 34 38 48 99 38 55 19 10 79-2 63-25 29 2 30 53 57 61 21 56 44 35 147 207 54 50M2792 765l38-7 25 11 2 127 21 147-77 412 5 17 36 27-9 56-37 26 33 61-82 46-81 32-41 33 16 39 84 119 7 93M2733 2024l0 35-34 67 2 26 31 63-14 14-40 12M2814 2613l154-63 79-51 122-27 61 20 43 27 74 2 72 17 117-7 242-105 30-23 34-51 220-81 225-126 98-41 34-51 16-9 264 73 129 25M3707 2120l-9-25-24-25-144-35-43-40-230-30-171 97-96 41-266 81M2716 2187l-33 10 0 17M2814 2624l35 45 27 3 240-102 118-62 20 4M3353 2524l59 62 118-52M3538 2531l42-18M3586 2510l33-14M3628 2492l36-15M3812 2397l18-32M3944 2315l120-44M4135 2227l30-14M3734 3743l14 23 14 3 87-39M2817 1875l4-26-62-92-83-99-130-125 127-83-16-19-10-112-65-225 1-23 164-104 18-95 27-31-3-67", "w": "M2791 765l36-8 32 10 63-4 65 13M2994 778l61 77 4 33-105 551 32 122-11 68-138 196-12 49-39 21-139 259-63 43 102 121 52 247 75 109 19 13 22 0 102-48 24 1 193 261M2814 2669l419-177 32 27 127 158 95 79M2575 2186l-59-69-21-2-35-51 12-42M2818 1865l1-17-61-90-86-103-296-282-89-215M2765 1921l-58 2-14 15-112 32-99 39-10 13M4165 2213l-103 58-223 83-32 51-36 25-346 154-23-3-47-57-90-7M3216 2486l-22-7-20 11-9 31M2393 1385l7-11 93-28 117-70 34-38 127-83 49-240-34-108 3-33", "p": "M2539 2502l62 85 26 8 414-165 64-10 46 16-7 20 7 26 33 30 37-18 51-46 162-19 88 24 465 47 322 98", "l": "M2806 1434l-2 34 38 28-7 54M2828 1645l0-15-32-46 39-33M2710 1887l-70-98-13-40 42-30 157-71M3160 2465l-97-45-17-23 11-93 45-83-25-41 38-274-294-38-97 26-14-7", "BORO": "M1778 1483l105-32 14-26-28-6 29 1-27-11 29 2-31-6 0-98 51-19-49 12-6-32 197-209 16-61-228-206 17-9-221-151-94-102-29 10-52-62-96-29-137-153-28 5-15 51 67 4 64 71-39 38-66-5-44-37 10-52-363-179-67 4-109-96-39 31-85-12-100-86-135-14-157-58-64 40-24 77 50 83 108 39-42 49 20 94-60 88 173 125 122-9 66 38 73 308 71 75-52 130 19 206 62 70 146 79 4-34 55 32 28-22-17-24 76 18 31-35 95-17 14 23 29-20 141 45 74-26 173 62 275 28zM3056 2391l252-117 47-81-76-42-12-41 29-23-5 62 67 29 23-84 176-137-15-16 44-25 49-93 23 30 46-11 156 100 56 5 24-128 37-27 19-79 28 4 19-78-76-69 61-67 0-66-101-38-120 147 113-165-66-14-164 127 139-134-64-48 4-33-44 4-81-58-219 90 211-101 5-69 50-17-31-16 43-1-36-44-69-11-11 61-76 57 66-69 7-47-70 9 3-26-54-1-34 48 30 61-54-72 104-61 251 39 73-206-30-48-158-33-35 109-124-17-6 84-38 49-55 24-34-20-56 43-7-24 165-127-103-33-33 21 39 37-50-26-8 53-27 8 30-63-16-18 60-22 119 15 8-29-47 0 58-14-420 12 209-17 12-56-707-61-99 53 2 50 136 18 98-29 24 29-20-21-36 15 13 35-99-15 8 33 53 23-63-22 25 18 7 34-30-4 17 23-26-11-101 84-189 39-60 45-55 111 5 98 43 88-20 6 21-5 26 52 59-3 22 23-34 25 46-19-13 41 32 2-25 15 42-19-20 33 51-2-17 26 31-12-24 21 37-8-25 17 35-7-31 19 20 13 69-13-10 38 61-11-42 26 77-10-29 27 39 19 2 32-41-43-41-13 16 49-21-38-24 14-16-34-54-3-24 68 28-67 62 42-54 19 27 23-33-4 13 18-38-24-5 73 65 40-2-32 33 29-22 6 109 62 64 143 163 16 37-44-12-20 26 21 24-17-20 27 30-25-48 75 34-19-11 33 48-57-24 79 78 138 42-5-37 13-7 81 79 51zM4933 1143l65-35-14-18 158 30 74-89-3-62-31-3 34 5 3-26-754-110-568-193-373-88-331-136 14 132 131 66 142 43 103-32 91 59 152 3 243 124 316 55 119 68 53-23-37 22 20 21 36-30-23 51 172 55-37-62 15-23 109 149 46-7-18 3 13-50-72-58 18-15 52 48 13-36 55-3-31 16 22 101-52 24 75 24zM4366 1390l27-101 45-42-25-18 33-14-24-42 37-27-21-17 14-47-64-135-120-5-16 13 24 23 109 22-30 8 41 113-12-36-42 57-82 2 3 66 45 32-30-9 11 95-23 57 75-28 25 33zM4395 3010l70-41 190-20 14-61 114 23 9 29-25 9 64 15 63-79-57 0 93-84 23-68 201-168-105 110 17 58-21 44 49 49 56-60 10 20 46-26 381-252 13-116-77-114-226-56 34-122 13-304-27-166 31-110-162-51 14-118-26 1 15 25-25 13-30-25-6 66-76 47 71-58-8-65-179-71-38-86-15 38-34-44 34 44-78 37-57-72 43-65-105-60-94 43 61 105 55 5 57 73-59 41-87-33 73 33-14 16-287 127-16 106 110 16-120-7 5-121-79 36 8 82 10-25-28-24 8 34-23-2 26-91-39-10-50 142 38-167-136-14-29 35 30 39-66-2-54 51 18 21-36-2 56 18-8 34 27 4-19 78-28-4-19 79-37 27-24 128-56-5-156-100-46 11-23-30-49 93-44 25 15 16-176 137-22 58 35 8-46 65 48 12-160 59-95 79 73 54-74-48-166 6 56 102 38-12-30 20 127 148 86 55-30 41 18 31 75-6 187 143 139-51-66-55 81 39-8-27 36 7-8-48 7-25 17 29 6-43 56 6-15 56 67 9-10 23 45-14 73 59-47-66 175-86-28-15 17-18-66-21 42-49 16 22-16-22 79-25 116 66-83 4-39 54 23 63-34 11 32 31-59-4-42 31 65 32-20 3 11 55 48-6 60 35 15-18 35 34-24-9 37-51-7-35 44-5 50 44-26 35 100 46zM3336 3776l39-7 11-38 6 24 104-41-83-118-29 5-133-248 6-257 53-85-3-53-140-125 4-86-284-307-12-82-20 5 29-97-51-151-214-30-102-78-68-4-42 58 26 126 37 4-34 13 39 11 8 44-35 7 37-2-29 21 35 45-31 3 33 1 3 58-23 15 32 0-26 32 32 0-29 17 24 3-22 7 24 2-22 8 25 8-23 2 12 43 52 49-22 14 55 34-17 21 38-9-29 18 40 0-33 14 39-7-30 19 42-1-31 17 26-10-18 20 39 7-13 25 39 11 34 46-27-1 27 3 304 419-11 19 84 89 51 113-9 66 53 36 153 235zM3871 4044l134-39 84 99-24-29 121-33 30-101 454-107-100-147-62 25 62-55 82 75 19 64 38 17-4-23 53-7-29-55 37 9 1-30-81-32-5-64-68-62-16-68-39 52-5 82-35-20-69 36-13-19 37-23 4-47-43-4 4-70 45-1-18-31-47 8 35-30-1-106 49-26-41-40 64 17 33-72 69-28-62-34-34 41 19-43 143-50 5-25-262 91-134-29-17-61-56 11-31 54 13 113-33 59 35 52-9 58 1-56-35-39 31-102-62-92-92 36 63-20 10-74-78-4-34 19 3 39-4-21-83 24-88 55 84-93-51-58-119 11-100 48-71-19-98-84-156 61-53 74-7 229 50 117 163 189 52 107-24 45-83-31-71 32 134 349 12 17 374-111z"};
+const FEED='https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2F';
+const BORO={M:'Manhattan',Bk:'Brooklyn',Q:'Queens',Bx:'Bronx',SI:'Staten Island'};
+const RC={A:'#0039a6',C:'#0039a6',E:'#0039a6',B:'#ff6319',D:'#ff6319',F:'#ff6319',M:'#ff6319',G:'#6cbe45',J:'#996633',Z:'#996633',L:'#8b8d90',N:'#fccc0a',Q:'#fccc0a',R:'#fccc0a',W:'#fccc0a',1:'#ee352e',2:'#ee352e',3:'#ee352e',4:'#00933c',5:'#00933c',6:'#00933c',7:'#b933ad',S:'#6d6e71',SIR:'#0039a6'};
+const KX=0.758, TOP=4100;
+const $=id=>document.getElementById(id);
+const NS='http://www.w3.org/2000/svg';
+const el=(tag,attrs,parent,ns)=>{const e=ns?document.createElementNS(NS,tag):document.createElement(tag);for(const k in attrs||{}){if(k==='text')e.textContent=attrs[k];else e.setAttribute(k,attrs[k]);}if(parent)parent.appendChild(e);return e;};
+const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+
+const stations=ACC.split('\n').map(l=>{const p=l.split('|');return{cx:p[0],name:p[1],routes:p[2].split(' '),part:p[3]==='2',notes:p[4],boro:p[5],px:+p[6]*KX,py:TOP-+p[7],no:p[8]?p[8].split(' '):[],out:[]};});
+const byCx=Object.fromEntries(stations.map(s=>[s.cx,s]));
+let outages=[], sel=null, filter='all';
+
+/* ---------- map ---------- */
+const svg=$('map'); const vb={x:0,y:0,w:100,h:100};
+const GT=`matrix(${KX} 0 0 -1 0 ${TOP})`;
+el('path',{class:'land',d:GEO.BORO,transform:GT},svg,1);
+const gLab=el('g',{},svg,1), gLn=el('g',{transform:GT},svg,1), gNon=el('g',{},svg,1), gSt=el('g',{},svg,1);
+const LC={s:'#808183',y:'var(--ly)',n:'#996633',l:'#6cbe45',p:'#b933ad',w:'#fccc0a',o:'#ff6319',b:'var(--lb)',g:'#00933c',r:'#ee352e'};
+for(const k in LC)el('path',{class:'ln',d:GEO[k],style:'stroke:'+LC[k]},gLn,1);
+[['MANHATTAN',1850,1500,-62],['BROOKLYN',2500,3050,0],['QUEENS',3450,2250,0],['THE BRONX',3150,420,0],['STATEN ISLAND',780,3080,0]].forEach(b=>el('text',{class:'boro',x:b[1],y:b[2],transform:`rotate(${b[3]} ${b[1]} ${b[2]})`,text:b[0]},gLab,1));
+const gMe=el('g',{id:'me',style:'display:none'},svg,1); const meAcc=el('circle',{class:'acc'},gMe,1), meDot=el('circle',{class:'dot'},gMe,1);
+const nonEls=NON.split(' ').map(c=>{const [x,y]=c.split(',');return el('circle',{class:'non',cx:x*KX,cy:TOP-y},gNon,1);});
+stations.forEach(s=>{
+  const g=el('g',{class:'st'+(s.part?' part':'')},gSt,1); s.g=g;
+  el('circle',{class:'halo',r:13},g,1);
+  s.shape=el('circle',{class:'shape',r:6},g,1);
+  el('circle',{class:'pdot',r:2.6},g,1);
+  s.diamond=el('rect',{class:'shape',x:-6.5,y:-6.5,width:13,height:13,transform:'rotate(45)',style:'display:none'},g,1);
+  el('text',{class:'bang',y:3.6,text:'!'},g,1);
+  el('text',{class:'lab',x:12,y:4,text:s.name},g,1);
+  el('title',{text:s.name},g,1);
+  g.addEventListener('click',()=>{if(!moved)select(s,false);});
+});
+function unit(){return vb.w/(svg.clientWidth||1);}
+function apply(){
+  svg.setAttribute('viewBox',`${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+  const u=unit(), k=u>3.5?0.72:1;
+  stations.forEach(s=>s.g.setAttribute('transform',`translate(${s.px} ${s.py}) scale(${u*k})`));
+  const r=Math.max(2*u,Math.min(3*u,12));
+  nonEls.forEach(c=>c.setAttribute('r',r));
+  meDot.setAttribute('r',8*u); meDot.style.strokeWidth=3*u;
+  svg.classList.toggle('labels',u<1.0);svg.classList.toggle('far',u>3.5);
+}
+let raf=0; const redraw=()=>{if(!raf)raf=requestAnimationFrame(()=>{raf=0;apply();});};
+function fit(){
+  const W=svg.clientWidth||800,H=svg.clientHeight||600;
+  const b={x:1250,y:40,w:2650,h:3420};
+  const s=Math.max(b.w/W,b.h/H)*1.04;
+  vb.w=W*s;vb.h=H*s;vb.x=b.x+b.w/2-vb.w/2;vb.y=b.y+b.h/2-vb.h/2;apply();
+}
+function zoomAt(f,cx,cy){
+  const r=svg.getBoundingClientRect();
+  if(cx==null){cx=r.left+r.width/2;cy=r.top+r.height/2;}
+  const nw=Math.min(9000,Math.max(180,vb.w*f)); f=nw/vb.w;
+  const mx=vb.x+(cx-r.left)/r.width*vb.w, my=vb.y+(cy-r.top)/r.height*vb.h;
+  vb.x=mx-(mx-vb.x)*f; vb.y=my-(my-vb.y)*f; vb.w*=f; vb.h*=f; redraw();
+}
+const pts=new Map(); let moved=false, pinch=0;
+svg.addEventListener('pointerdown',e=>{pts.set(e.pointerId,{x:e.clientX,y:e.clientY});moved=false;if(pts.size===2){const a=[...pts.values()];pinch=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);}});
+svg.addEventListener('pointermove',e=>{
+  const p=pts.get(e.pointerId); if(!p)return;
+  const dx=e.clientX-p.x, dy=e.clientY-p.y;
+  if(pts.size===1){
+    if(!moved&&Math.hypot(dx,dy)<5)return;
+    if(!moved){moved=true;svg.classList.add('drag');try{svg.setPointerCapture(e.pointerId);}catch(_){}}
+    const u=unit(); vb.x-=dx*u; vb.y-=dy*u; p.x=e.clientX;p.y=e.clientY; redraw();
+  }else if(pts.size===2){
+    moved=true; p.x=e.clientX;p.y=e.clientY;
+    const a=[...pts.values()], d=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);
+    if(pinch>0&&d>0)zoomAt(pinch/d,(a[0].x+a[1].x)/2,(a[0].y+a[1].y)/2);
+    pinch=d;
+  }
+});
+const up=e=>{pts.delete(e.pointerId);svg.classList.remove('drag');pinch=0;setTimeout(()=>{if(!pts.size)moved=false;},0);};
+svg.addEventListener('pointerup',up);svg.addEventListener('pointercancel',up);
+svg.addEventListener('wheel',e=>{e.preventDefault();zoomAt(Math.exp(e.deltaY*0.0015),e.clientX,e.clientY);},{passive:false});
+$('zin').onclick=()=>zoomAt(0.6);$('zout').onclick=()=>zoomAt(1.6);$('zfit').onclick=fit;
+addEventListener('resize',()=>{const W=svg.clientWidth,H=svg.clientHeight;if(W&&H){vb.h=vb.w*H/W;redraw();}});
+
+/* ---------- my location (works when the page runs as its own app, not inside the hosted viewer) ---------- */
+let me=null, watch=null, msgT=0;
+function say(t){const m=$('msg');m.textContent=t;m.hidden=false;clearTimeout(msgT);msgT=setTimeout(()=>m.hidden=true,5000);}
+function locate(){
+  if(watch!=null){ if(me){vb.x=me.px-vb.w/2;vb.y=me.py-vb.h/2;redraw();} return; }
+  $('loc').setAttribute('aria-pressed','true');
+  watch=navigator.geolocation.watchPosition(p=>{
+    const first=!me, la=p.coords.latitude, lo=p.coords.longitude;
+    if(la<40.48||la>40.93||lo<-74.27||lo>-73.68){ if(first||me.shown)say("You're outside the map area."); me={shown:false}; gMe.style.display='none'; stations.forEach(s=>s.dist=null); renderList(); return; }
+    me={px:(lo+74.26)*1e4*KX, py:TOP-(la-40.5)*1e4, shown:true};
+    gMe.style.display=''; $('lgme').hidden=false;
+    [meAcc,meDot].forEach(c=>{c.setAttribute('cx',me.px);c.setAttribute('cy',me.py);});
+    meAcc.setAttribute('r',Math.min(400,(p.coords.accuracy||0)/11.1));
+    stations.forEach(s=>s.dist=Math.hypot((s.px-me.px)*8.44,(s.py-me.py)*11.1)/1609.34);
+    if(first){ const f=1.6/unit(); if(f<1){vb.w*=f;vb.h*=f;} vb.x=me.px-vb.w/2; vb.y=me.py-vb.h/2; }
+    redraw(); renderList();
+  },e=>{
+    navigator.geolocation.clearWatch(watch); watch=null; $('loc').setAttribute('aria-pressed','false');
+    say(e.code===1?'Location is turned off for this page. Allow it in Settings to see where you are.':"Couldn't get your location right now.");
+  },{enableHighAccuracy:true,maximumAge:15000,timeout:20000});
+}
+$('loc').onclick=locate;
+
+/* ---------- status ---------- */
+function fmtRet(t){
+  const m=/^(\d+)\/(\d+)\/(\d+) (\d+):(\d+):\d+ (AM|PM)/.exec(t||''); if(!m)return t||'';
+  const mon=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m[1]-1];
+  return `${mon} ${+m[2]}, ${+m[4]}:${m[5]} ${m[6]}`;
+}
+function setOutages(list){
+  outages=list||[];
+  stations.forEach(s=>s.out=[]);
+  outages.forEach(o=>{
+    let s=byCx[o.cx];
+    if(!s){const n=norm(o.station),ln=String(o.lines||'').split('/');
+      s=stations.find(t=>t.name.split(' / ').some(x=>norm(x)===n)&&t.routes.concat(t.no).some(r=>ln.includes(r)));}
+    if(s)s.out.push(o);
+  });
+  stations.forEach(s=>{
+    const o=s.out.length>0; s.g.classList.toggle('out',o);
+    s.shape.style.display=o?'none':''; s.diamond.style.display=o?'':'none';
+    if(o)gSt.appendChild(s.g);
+  });
+  const nOut=stations.filter(s=>s.out.length).length;
+  $('nAll').textContent=stations.length; $('nOut').textContent=nOut; $('nOk').textContent=stations.length-nOut;
+  renderList(); if(sel)renderDetail();
+}
+function setStatus(kind,text){$('dot').className=kind;$('stxt').textContent=text;}
+const clock=d=>d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+
+let equip=null, liveOK=false, snap=null;
+async function live(){
+  const get=async f=>{const r=await fetch(FEED+f,{cache:'no-store'});if(!r.ok)throw new Error(r.status);return r.json();};
+  if(!equip){const e=await get('nyct_ene_equipments.json');equip={};e.forEach(x=>equip[x.equipmentno]=x.stationcomplexid);}
+  const o=await get('nyct_ene.json');
+  setOutages(o.filter(x=>x.equipmenttype==='EL'&&x.isupcomingoutage!=='Y').map(x=>({eq:x.equipment,cx:equip[x.equipment]||'',station:x.station,lines:x.trainno,reason:x.reason,ret:x.estimatedreturntoservice,serving:x.serving})));
+  liveOK=true; if(navigator.geolocation)$('loc').hidden=false; setStatus('live','Live from the MTA feed · updated '+clock(new Date()));
+}
+function showSnap(){
+  if(liveOK)return;
+  if(!snap||!Array.isArray(snap.outages)){setOutages([]);$('nOk').textContent='–';$('nOut').textContent='–';setStatus('stale','Elevator status unavailable right now — see the MTA status page');return;}
+  setOutages(snap.outages);
+  const d=new Date(snap.updatedAt), age=(Date.now()-d)/36e5;
+  const when=isNaN(d)?'':(d.toDateString()===new Date().toDateString()?clock(d):d.toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}));
+  setStatus(age>3?'stale':'snap',age>3?`Elevator status last refreshed ${when} — may be out of date`:`Elevator status from the MTA feed · refreshed ${when}`);
+}
+const unwrap=s=>!s?null:typeof s.data==='function'?s.data():s.exists===false?null:(s.data!==undefined?s.data:s);
+async function startDb(){
+  try{
+    if(!window.claude||!window.claude.use)return;
+    const db=await window.claude.use('db'); if(!db)return;
+    const ref=db.doc('status/current');
+    const got=v=>{const d=unwrap(v);if(d){snap=d;showSnap();}};
+    try{ref.onSnapshot(got,()=>{});}catch(_){}
+    try{got(await ref.get());}catch(_){}
+  }catch(_){}
+}
+async function start(){
+  try{await live();setInterval(()=>live().catch(()=>setStatus('stale','Live feed unreachable — retrying')),60000);}
+  catch(_){ /* hosted page: direct feed access is blocked, use the stored snapshot */
+    startDb(); setTimeout(()=>{if(!liveOK&&!snap)showSnap();},10000);
+  }
+}
+
+/* ---------- list + detail ---------- */
+function bullets(parent,routes){routes.forEach(r=>{const b=el('span',{class:'rt',text:r},parent);b.style.background=RC[r]||'#555';if('NQRW'.includes(r)&&r.length===1)b.style.color='#111';});}
+function matches(s){
+  const q=norm($('q').value), b=$('boro').value;
+  if(b&&s.boro!==b)return false;
+  if(filter==='out'&&!s.out.length)return false;
+  if(filter==='ok'&&s.out.length)return false;
+  if(filter==='part'&&!s.part)return false;
+  if(q&&!norm(s.name).includes(q)&&!s.routes.some(r=>norm(r)===q))return false;
+  return true;
+}
+function renderList(){
+  const ul=$('list'); ul.textContent='';
+  const near=me&&me.shown;
+  const shown=stations.filter(matches).sort((a,b)=>near?a.dist-b.dist:((b.out.length>0)-(a.out.length>0)||a.name.localeCompare(b.name,undefined,{numeric:true})));
+  stations.forEach(s=>s.g.classList.toggle('hide',!matches(s)&&s!==sel));
+  if(!shown.length){el('li',{id:'empty',text:'No stations match.'},ul);return;}
+  shown.forEach(s=>{
+    const b=el('button',{type:'button'},el('li',{},ul));
+    el('div',{class:'nm',text:s.name},b);
+    const r=el('div',{},b); bullets(r,s.routes);
+    const t=s.out.length?`${s.out.length} elevator${s.out.length>1?'s':''} out of service`:(s.part?s.notes:'');
+    if(near)el('div',{class:'sub',text:(s.dist<0.1?Math.round(s.dist*5280/50)*50+' ft':s.dist.toFixed(1)+' mi')+' away'},b);
+    if(t)el('div',{class:'sub'+(s.out.length?' o':''),text:(s.out.length?'⚠ ':'')+t},b);
+    b.onclick=()=>select(s,true);
+  });
+}
+function renderDetail(){
+  const d=$('detail'); d.textContent=''; if(!sel){d.classList.remove('on');return;}
+  const s=sel; d.classList.add('on');
+  const c=el('button',{id:'close','aria-label':'Close station details',text:'×'},d); c.onclick=()=>select(null);
+  el('h2',{text:s.name},d);
+  const r=el('div',{},d); bullets(r,s.routes);
+  el('div',{class:'note',text:BORO[s.boro]},d);
+  el('div',{class:'badge '+(s.out.length?'out':'ok'),text:s.out.length?`⚠ ${s.out.length} elevator${s.out.length>1?'s':''} out of service`:(liveOK||snap?'✓ No elevator outages reported':'Accessible station')},d);
+  if(s.part)el('div',{class:'note',text:'Accessible '+s.notes.charAt(0).toLowerCase()+s.notes.slice(1)+'.'},d);
+  if(s.no.length){const n=el('div',{class:'note',text:'Not accessible here: '},d);bullets(n,s.no);}
+  s.out.forEach(o=>{
+    const x=el('div',{class:'outage'},d);
+    el('b',{text:o.serving||'Elevator '+o.eq},x);
+    el('small',{text:`${o.eq} · ${o.reason||'Out of service'}${o.ret?' · expected back '+fmtRet(o.ret):''}`},x);
+  });
+  const p=el('p',{style:'margin:10px 0 0'},d);
+  el('a',{href:'https://www.mta.info/elevator-escalator-status',target:'_blank',rel:'noopener',text:'Check the MTA elevator status page ↗'},p);
+}
+function select(s,center){
+  if(sel)sel.g.classList.remove('sel');
+  sel=s; renderDetail();
+  if(!s){renderList();return;}
+  s.g.classList.add('sel'); s.g.classList.remove('hide'); gSt.appendChild(s.g);
+  if(center){ if(unit()>1.6){const f=1.5/unit();vb.w*=f;vb.h*=f;} vb.x=s.px-vb.w/2; vb.y=s.py-vb.h/2; redraw();
+    if(matchMedia('(max-width:820px)').matches)$('mapwrap').scrollIntoView({behavior:'smooth'}); }
+}
+$('q').addEventListener('input',renderList); $('boro').addEventListener('change',renderList);
+document.querySelectorAll('.chips button').forEach(b=>b.onclick=()=>{filter=b.dataset.f;document.querySelectorAll('.chips button').forEach(x=>x.setAttribute('aria-pressed',x===b));renderList();});
+
+fit(); $('nAll').textContent=stations.length; renderList(); start();
+</script>
+</body>
+</html>
